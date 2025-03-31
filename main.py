@@ -148,13 +148,11 @@ async def callback(request: Request):
     return JSONResponse(content={"status": "ok"})
 
 @handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
+async def handle_message(event):  # <- ต้องใส่ async ด้วย
     user_text = event.message.text.strip()
     user_id = event.source.user_id
     today = datetime.now().date()
-    print(f"\n>>> Message from {user_id}: {user_text}")
 
-    # Premium
     if "สมัคร premium" in user_text.lower():
         reply_text = (
             "สมัคร Premium ได้เลยครับ 🎉\n"
@@ -171,7 +169,7 @@ def handle_message(event):
     elif not check_quota(user_id):
         reply_text = "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\nหากต้องการไม่จำกัด พิมพ์ว่า 'สมัคร Premium'"
     else:
-        reply_text = asyncio.run(chat_with_gpt(user_id, user_text))
+        reply_text = await chat_with_gpt(user_id, user_text)  # ✅ เปลี่ยนตรงนี้เป็น await
 
     line_bot_api.reply_message(
         event.reply_token,
