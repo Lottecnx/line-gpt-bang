@@ -5,26 +5,23 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import openai
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 import random
 
 app = FastAPI()
 
-# โหลด ENV
+# API Key
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# -------------------------------
-# SYSTEM SETTINGS
+# ระบบจำข้อมูล
 user_logs = defaultdict(list)
 user_quota = {}
-premium_users = {}
 MAX_MESSAGES_PER_DAY = 20
 
-# -------------------------------
-# AFFILIATE LINK + KEYWORDS
+# ลิงก์ Affiliate Shopee
 affiliate_links = {
     "เสื้อผ้าชาย": "https://s.shopee.co.th/8zrT7bBLKl",
     "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk",
@@ -71,23 +68,9 @@ category_keywords = {
     "ของเล่น สินค้าแม่และเด็ก": ["ของเล่น", "ผ้าอ้อม", "แม่และเด็ก"],
     "กีฬาและกิจกรรมกลางแจ้ง": ["ออกกำลังกาย", "ฟิตเนส", "จักรยาน"],
     "สัตว์เลี้ยง": ["อาหารแมว", "อาหารหมา", "ของสัตว์เลี้ยง"],
-    "เกมและอุปกรณ์เสริม": ["เกม", "จอย", "เพลย์"],
-    "ยานยนต์": ["ยางรถ", "ของแต่งรถ", "รถยนต์"],
-    "เครื่องเขียน หนังสือ และงานอดิเรก": ["ปากกา", "หนังสือ", "งานอดิเรก"],
-    "ตั๋วและบัตรกำนัล": ["บัตรของขวัญ", "คูปอง"]
+    "เกมและอุปกรณ์เสริม": ["เกม", "จอย", "เพลย์"]
 }
 
-# -------------------------------
-system_prompt = """
-คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่สุภาพ ตอบฉลาด เข้าใจง่าย พูดเหมือนเพื่อน
-ห้ามขายตรง ห้ามแนะนำตัวซ้ำ ให้แนบลิงก์ Shopee ถ้ามีคำเกี่ยวข้องแบบแนบเนียน
-
-ถ้าผู้ใช้พิมพ์ว่า "ของเด็ด" หรือ "ของเด็ดวันนี้" ให้สุ่มหมวด พร้อมแนบลิงก์
-
-ถ้าพิมพ์ว่า "สมัคร Premium", "โอนแล้ว", "แจ้งโอน" → ให้เพิ่ม Premium ใช้งาน 30 วัน
-"""
-
-# -------------------------------
 def find_affiliate_link(text):
     for category, keywords in category_keywords.items():
         if any(k in text for k in keywords):
@@ -96,8 +79,6 @@ def find_affiliate_link(text):
 
 def check_quota(user_id):
     today = datetime.now().date()
-    if user_id in premium_users and premium_users[user_id] >= today:
-        return True
     if user_id not in user_quota or user_quota[user_id]["date"] != today:
         user_quota[user_id] = {"date": today, "count": 0}
     if user_quota[user_id]["count"] < MAX_MESSAGES_PER_DAY:
@@ -105,30 +86,26 @@ def check_quota(user_id):
         return True
     return False
 
-async def chat_with_gpt(user_id, user_text):
-    if user_id not in user_logs:
-        user_logs[user_id] = []
-
+def get_response(user_id, user_text):
     user_logs[user_id].append(user_text)
 
+    # ของเด็ดประจำวัน
     if "ของเด็ด" in user_text:
         category = random.choice(list(affiliate_links.keys()))
         return f"ของเด็ดวันนี้ บังแนะนำหมวด: {category} 🔥\n👉 {affiliate_links[category]}"
 
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = [{"role": "system", "content": "คุณคือบัง ผู้ช่วย AI สุภาพ ฉลาด ตอบเหมือนเพื่อน พูดเข้าใจง่าย ไม่แนะนำตัวซ้ำ"}]
     for msg in user_logs[user_id][-5:]:
         messages.append({"role": "user", "content": msg})
 
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=messages,
-        temperature=0.8
+        messages=messages
     )
     reply = response["choices"][0]["message"]["content"].strip()
     reply += find_affiliate_link(user_text)
     return reply
 
-# -------------------------------
 @app.post("/webhook")
 async def callback(request: Request):
     body = await request.body()
@@ -136,35 +113,26 @@ async def callback(request: Request):
     try:
         handler.handle(body.decode(), signature)
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=400)
-    return JSONResponse(content={"message": "OK"})
+        print(">>> Error:", e)
+    return JSONResponse(content={"status": "ok"})
 
 @handler.add(MessageEvent, message=TextMessage)
-async def handle_message(event):
+def handle_message(event):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
-    today = datetime.now().date()
+    print(f">>> {user_id}: {user_text}")
 
-    if "สมัคร premium" in user_text.lower():
+    if not check_quota(user_id):
         reply_text = (
-            "สมัคร Premium ได้เลยครับ 🎉\n"
-            "โอน 59 บาท มาที่:\n"
-            "🏦 ธ.กรุงเทพ 6130393776 (สุภาพ สิริวัฒร์)\n"
-            "📱 พร้อมเพย์ 0803179007\n\n"
-            "พอโอนแล้วพิมพ์ว่า 'แจ้งโอน' หรือ 'โอนแล้ว' ได้เลยครับ!"
-        )
-    elif "โอนแล้ว" in user_text or "แจ้งโอน" in user_text:
-        premium_users[user_id] = today + timedelta(days=30)
-        reply_text = f"ขอบคุณครับ! บังอัปเกรดคุณเป็น Premium แล้ว 🎉 ใช้ได้ถึง {premium_users[user_id]}"
-    elif user_id in premium_users and premium_users[user_id] == today + timedelta(days=1):
-        reply_text = "📌 Premium ของคุณจะหมดอายุพรุ่งนี้นะครับ"
-    elif not check_quota(user_id):
-        reply_text = (
-            "คุณใช้ครบ 20 ข้อความสำหรับวันนี้แล้วครับ 😢\n"
-            "หากต้องการใช้งานแบบไม่จำกัด พิมพ์ว่า 'สมัคร Premium' ได้เลยครับ!"
+            "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\n"
+            "กลับมาใหม่พรุ่งนี้ หรือสมัคร Premium เพื่อใช้งานได้ไม่จำกัด!"
         )
     else:
-        reply_text = await chat_with_gpt(user_id, user_text)
+        try:
+            reply_text = get_response(user_id, user_text)
+        except Exception as e:
+            print(">>> GPT Error:", e)
+            reply_text = "ขออภัยครับ บังยังตอบไม่ได้ตอนนี้ 🧠"
 
     line_bot_api.reply_message(
         event.reply_token,
