@@ -8,28 +8,23 @@ import json
 from datetime import datetime, timedelta
 from collections import defaultdict
 import random
-import asyncio
 
 app = FastAPI()
 
-# ดึง KEY จาก Environment
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
-openai.api_key = OPENAI_API_KEY
+# โหลด ENV
+line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # -------------------------------
-# ระบบเก็บข้อมูล
+# SYSTEM SETTINGS
 user_logs = defaultdict(list)
 user_quota = {}
 premium_users = {}
 MAX_MESSAGES_PER_DAY = 20
 
 # -------------------------------
-# ลิงก์ Affiliate + คำค้น
+# AFFILIATE LINK + KEYWORDS
 affiliate_links = {
     "เสื้อผ้าชาย": "https://s.shopee.co.th/8zrT7bBLKl",
     "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk",
@@ -55,6 +50,7 @@ affiliate_links = {
     "เครื่องเขียน หนังสือ และงานอดิเรก": "https://s.shopee.co.th/5VHdDqybQb",
     "ตั๋วและบัตรกำนัล": "https://s.shopee.co.th/60DtoqH5Au"
 }
+
 category_keywords = {
     "เสื้อผ้าชาย": ["เสื้อยืด", "เสื้อเชิ้ต", "แฟชั่นผู้ชาย", "กางเกง"],
     "เสื้อผ้าหญิง": ["เสื้อครอป", "กระโปรง", "แฟชั่นผู้หญิง", "เดรส"],
@@ -82,13 +78,13 @@ category_keywords = {
 }
 
 # -------------------------------
-# SYSTEM PROMPT
 system_prompt = """
-คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่สุภาพ ตอบทุกคำถามให้ฉลาด เข้าใจง่าย
-ห้ามแนะนำตัวซ้ำ ห้ามขายของตรง ๆ แต่ถ้ามีคำเกี่ยวข้อง ให้แนบลิงก์ Shopee แบบสุภาพ
+คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่สุภาพ ตอบฉลาด เข้าใจง่าย พูดเหมือนเพื่อน
+ห้ามขายตรง ห้ามแนะนำตัวซ้ำ ให้แนบลิงก์ Shopee ถ้ามีคำเกี่ยวข้องแบบแนบเนียน
 
-ถ้าผู้ใช้พิมพ์ว่า "ของเด็ด" หรือ "ของเด็ดวันนี้" ให้สุ่มแนะนำหมวดและแนบลิงก์
-ถ้าพิมพ์ว่า "สมัคร Premium", "โอนแล้ว", "แจ้งโอน" → ให้เพิ่มเป็น Premium 30 วัน
+ถ้าผู้ใช้พิมพ์ว่า "ของเด็ด" หรือ "ของเด็ดวันนี้" ให้สุ่มหมวด พร้อมแนบลิงก์
+
+ถ้าพิมพ์ว่า "สมัคร Premium", "โอนแล้ว", "แจ้งโอน" → ให้เพิ่ม Premium ใช้งาน 30 วัน
 """
 
 # -------------------------------
@@ -136,19 +132,15 @@ async def chat_with_gpt(user_id, user_text):
 @app.post("/webhook")
 async def callback(request: Request):
     body = await request.body()
-    body_str = body.decode("utf-8")
-    json_body = json.loads(body_str)
-    print("\n>>> Webhook Received:", json.dumps(json_body, indent=2, ensure_ascii=False))
-
     signature = request.headers.get("X-Line-Signature")
     try:
-        handler.handle(body_str, signature)
+        handler.handle(body.decode(), signature)
     except Exception as e:
-        print(">>> Error in handler:", e)
-    return JSONResponse(content={"status": "ok"})
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+    return JSONResponse(content={"message": "OK"})
 
 @handler.add(MessageEvent, message=TextMessage)
-async def handle_message(event):  # <- ต้องใส่ async ด้วย
+async def handle_message(event):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
     today = datetime.now().date()
@@ -167,9 +159,12 @@ async def handle_message(event):  # <- ต้องใส่ async ด้วย
     elif user_id in premium_users and premium_users[user_id] == today + timedelta(days=1):
         reply_text = "📌 Premium ของคุณจะหมดอายุพรุ่งนี้นะครับ"
     elif not check_quota(user_id):
-        reply_text = "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\nหากต้องการไม่จำกัด พิมพ์ว่า 'สมัคร Premium'"
+        reply_text = (
+            "คุณใช้ครบ 20 ข้อความสำหรับวันนี้แล้วครับ 😢\n"
+            "หากต้องการใช้งานแบบไม่จำกัด พิมพ์ว่า 'สมัคร Premium' ได้เลยครับ!"
+        )
     else:
-        reply_text = await chat_with_gpt(user_id, user_text)  # ✅ เปลี่ยนตรงนี้เป็น await
+        reply_text = await chat_with_gpt(user_id, user_text)
 
     line_bot_api.reply_message(
         event.reply_token,
