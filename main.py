@@ -94,19 +94,7 @@ def get_response(user_id, user_text):
         category = random.choice(list(affiliate_links.keys()))
         return f"ของเด็ดวันนี้ บังแนะนำหมวด: {category} 🔥\n👉 {affiliate_links[category]}"
 
-    messages = [{
-        "role": "system",
-        "content": """
-คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
-- ตอบให้เข้าใจง่าย กระชับ ชัดเจน
-- ห้ามแนะนำตัวซ้ำ
-- ห้ามพูดวกวนหรือฟุ้ง
-- ใช้ภาษาคนไทยทั่วไป ไม่ใช้คำยาก
-- อย่าพูดว่า “ฉันสามารถช่วยได้” หรือ “ตัวอย่างเช่น”
-- ถ้าผู้ใช้ถามเรื่องสินค้า ให้ตอบพร้อมแนบลิงก์ที่สุภาพ ไม่ยัดเยียด
-"""
-    }]
-
+    messages = [{"role": "system", "content": "คุณคือบัง ผู้ช่วย AI สุภาพ ฉลาด ตอบเหมือนเพื่อน พูดเข้าใจง่าย ไม่แนะนำตัวซ้ำ"}]
     for msg in user_logs[user_id][-5:]:
         messages.append({"role": "user", "content": msg})
 
@@ -117,3 +105,36 @@ def get_response(user_id, user_text):
     reply = response["choices"][0]["message"]["content"].strip()
     reply += find_affiliate_link(user_text)
     return reply
+
+@app.post("/webhook")
+async def callback(request: Request):
+    body = await request.body()
+    signature = request.headers.get("X-Line-Signature")
+    try:
+        handler.handle(body.decode(), signature)
+    except Exception as e:
+        print(">>> Error:", e)
+    return JSONResponse(content={"status": "ok"})
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_text = event.message.text.strip()
+    user_id = event.source.user_id
+    print(f">>> {user_id}: {user_text}")
+
+    if not check_quota(user_id):
+        reply_text = (
+            "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\n"
+            "กลับมาใหม่พรุ่งนี้ หรือสมัคร Premium เพื่อใช้งานได้ไม่จำกัด!"
+        )
+    else:
+        try:
+            reply_text = get_response(user_id, user_text)
+        except Exception as e:
+            print(">>> GPT Error:", e)
+            reply_text = "ขออภัยครับ บังยังตอบไม่ได้ตอนนี้ 🧠"
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_text)
+    )
