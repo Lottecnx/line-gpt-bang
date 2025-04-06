@@ -16,7 +16,7 @@ app = FastAPI()
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
-IMGUR_CLIENT_ID = os.getenv("IMGUR_CLIENT_ID")
+IMGUR_CLIENT_ID = os.getenv("IMGUR_CLIENT_ID")  # ใส่ Client ID ของ Imgur
 
 # ระบบจำข้อมูล
 user_logs = defaultdict(list)
@@ -98,7 +98,7 @@ def get_response(user_id, user_text):
 
     if "สร้างภาพ" in user_text and user_id in user_latest_image:
         latest_image_url = user_latest_image[user_id]
-        redirect_url = f"https://your-redirect.com/?img={latest_image_url}"
+        redirect_url = f"https://s.shopee.co.th/8zrT7bBLKl?img={latest_image_url}"
         return f"ภาพของคุณพร้อมแล้วครับ 🎨\nดูได้ที่นี่ 👉 {redirect_url}"
 
     messages = [{"role": "system", "content": '''
