@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageMessage
 import openai
@@ -12,13 +12,13 @@ import requests
 
 app = FastAPI()
 
-# API Keys
+# API Key
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
 IMGUR_CLIENT_ID = os.getenv("IMGUR_CLIENT_ID")
 
-# User data
+# ระบบจำข้อมูล
 user_logs = defaultdict(list)
 user_quota = {}
 user_latest_image = {}
@@ -27,11 +27,51 @@ MAX_MESSAGES_PER_DAY = 20
 # Shopee Affiliate Links
 affiliate_links = {
     "เสื้อผ้าชาย": "https://s.shopee.co.th/8zrT7bBLKl",
-    "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk"
+    "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk",
+    "ความงามและของใช้ส่วนตัว": "https://s.shopee.co.th/6pn0mo0IPC",
+    "ผลิตภัณฑ์เพื่อสุขภาพ": "https://s.shopee.co.th/9pQcMPzJ5S",
+    "กระเป๋า": "https://s.shopee.co.th/VsxFNIoNU",
+    "รองเท้าหญิง": "https://s.shopee.co.th/LZX3IMFKa",
+    "รองเท้าชาย": "https://s.shopee.co.th/3fpz1UdQUH",
+    "เครื่องประดับ": "https://s.shopee.co.th/5fb3PDunCb",
+    "นาฬิกาและแว่นตา": "https://s.shopee.co.th/1qOKqFpHn6",
+    "ของใช้ในบ้าน": "https://s.shopee.co.th/7pfXzLIvHW",
+    "อุปกรณ์อิเล็กทรอนิกส์": "https://s.shopee.co.th/3AtiQoUBQY",
+    "มือถือและแท็บแล็ต": "https://s.shopee.co.th/10pDqtS14q",
+    "เครื่องใช้ไฟฟ้าภายในบ้าน": "https://s.shopee.co.th/6fTabPLcRN",
+    "คอมพิวเตอร์และแล็ปท็อป": "https://s.shopee.co.th/3LD8dL6IKX",
+    "กล้องและอุปกรณ์ถ่ายภาพ": "https://s.shopee.co.th/4fiWDtLTtI",
+    "อาหารและเครื่องดื่ม": "https://s.shopee.co.th/2qGs2a53J2",
+    "ของเล่น สินค้าแม่และเด็ก": "https://s.shopee.co.th/40SpQnXIc4",
+    "กีฬาและกิจกรรมกลางแจ้ง": "https://s.shopee.co.th/VsxGQacXn",
+    "สัตว์เลี้ยง": "https://s.shopee.co.th/4L5fpXcHlQ",
+    "เกมและอุปกรณ์เสริม": "https://s.shopee.co.th/2LKbRvUjzF",
+    "ยานยนต์": "https://s.shopee.co.th/10pDrXCCbA",
+    "เครื่องเขียน หนังสือ และงานอดิเรก": "https://s.shopee.co.th/5VHdDqybQb",
+    "ตั๋วและบัตรกำนัล": "https://s.shopee.co.th/60DtoqH5Au"
 }
+
 category_keywords = {
     "เสื้อผ้าชาย": ["เสื้อยืด", "เสื้อเชิ้ต", "แฟชั่นผู้ชาย", "กางเกง"],
-    "เสื้อผ้าหญิง": ["เสื้อครอป", "กระโปรง", "แฟชั่นผู้หญิง", "เดรส"]
+    "เสื้อผ้าหญิง": ["เสื้อครอป", "กระโปรง", "แฟชั่นผู้หญิง", "เดรส"],
+    "ความงามและของใช้ส่วนตัว": ["ครีม", "สกินแคร์", "ลิปสติก"],
+    "ผลิตภัณฑ์เพื่อสุขภาพ": ["วิตามิน", "อาหารเสริม", "สุขภาพ"],
+    "กระเป๋า": ["กระเป๋าสะพาย", "กระเป๋าเงิน"],
+    "รองเท้าหญิง": ["รองเท้าผู้หญิง", "ส้นสูง"],
+    "รองเท้าชาย": ["รองเท้าผู้ชาย", "รองเท้าหนัง"],
+    "เครื่องประดับ": ["กำไล", "แหวน", "ต่างหู", "จิวเวลรี่"],
+    "นาฬิกาและแว่นตา": ["นาฬิกา", "แว่นตา"],
+    "ของใช้ในบ้าน": ["หมอน", "ที่นอน", "ของแต่งบ้าน"],
+    "อุปกรณ์อิเล็กทรอนิกส์": ["หูฟัง", "ลำโพง", "อิเล็กทรอนิกส์"],
+    "มือถือและแท็บแล็ต": ["มือถือ", "โทรศัพท์", "ไอโฟน"],
+    "เครื่องใช้ไฟฟ้าภายในบ้าน": ["พัดลม", "ไมโครเวฟ", "หม้อทอด"],
+    "คอมพิวเตอร์และแล็ปท็อป": ["โน้ตบุ๊ก", "แล็ปท็อป", "PC"],
+    "กล้องและอุปกรณ์ถ่ายภาพ": ["กล้อง", "เลนส์", "ขาตั้งกล้อง"],
+    "อาหารและเครื่องดื่ม": ["ขนม", "เครื่องดื่ม", "กาแฟ"],
+    "ของเล่น สินค้าแม่และเด็ก": ["ของเล่น", "ผ้าอ้อม", "แม่และเด็ก"],
+    "กีฬาและกิจกรรมกลางแจ้ง": ["ออกกำลังกาย", "ฟิตเนส", "จักรยาน"],
+    "สัตว์เลี้ยง": ["อาหารแมว", "อาหารหมา", "ของสัตว์เลี้ยง"],
+    "เกมและอุปกรณ์เสริม": ["เกม", "จอย", "เพลย์"]
 }
 
 def find_affiliate_link(text):
@@ -56,9 +96,9 @@ def get_response(user_id, user_text):
         category = random.choice(list(affiliate_links.keys()))
         return f"ของเด็ดวันนี้ บังแนะนำหมวด: {category} 🔥\n👉 {affiliate_links[category]}"
 
-    if user_text.lower().startswith("สร้างภาพ") and user_id in user_latest_image:
+    if "สร้างภาพ" in user_text and user_id in user_latest_image:
         latest_image_url = user_latest_image[user_id]
-        redirect_url = f"https://yourdomain.com/redirect?img={latest_image_url}"
+        redirect_url = f"https://your-redirect.com/?img={latest_image_url}"
         return f"ภาพของคุณพร้อมแล้วครับ 🎨\nดูได้ที่นี่ 👉 {redirect_url}"
 
     messages = [{"role": "system", "content": '''
@@ -81,8 +121,11 @@ def get_response(user_id, user_text):
 def upload_to_imgur(image_bytes):
     url = "https://api.imgur.com/3/image"
     headers = {"Authorization": f"Client-ID {IMGUR_CLIENT_ID}"}
-    files = {"image": image_bytes}
-    response = requests.post(url, headers=headers, files=files)
+    response = requests.post(url, headers=headers, files={"image": image_bytes})
+
+    print(">>> IMGUR STATUS:", response.status_code)
+    print(">>> IMGUR RESPONSE:", response.text)
+
     if response.status_code == 200:
         return response.json()["data"]["link"]
     return None
@@ -94,7 +137,7 @@ async def callback(request: Request):
     try:
         handler.handle(body.decode(), signature)
     except Exception as e:
-        print(">>> Error:", e)
+        print(">>> Webhook Error:", e)
     return JSONResponse(content={"status": "ok"})
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -118,19 +161,17 @@ def handle_text(event):
 def handle_image(event):
     user_id = event.source.user_id
     message_id = event.message.id
-    content = line_bot_api.get_message_content(message_id)
-    image_data = b''.join(content.iter_content())
-
-    imgur_url = upload_to_imgur(image_data)
-    if imgur_url:
-        user_latest_image[user_id] = imgur_url
-        reply_text = "รับภาพแล้วครับ! 📷\nพิมพ์ว่า 'สร้างภาพการ์ตูน' หรือ 'สร้างภาพเสื้อ' ได้เลย"
-    else:
-        reply_text = "อัปโหลดภาพไม่สำเร็จครับ ลองใหม่อีกครั้งนะครับ"
+    try:
+        content = line_bot_api.get_message_content(message_id)
+        image_data = b''.join(content.iter_content())
+        imgur_url = upload_to_imgur(image_data)
+        if imgur_url:
+            user_latest_image[user_id] = imgur_url
+            reply_text = "รับภาพแล้วครับ! 📷\nพิมพ์ว่า 'สร้างภาพการ์ตูน' เพื่อเริ่มใช้งาน"
+        else:
+            reply_text = "อัปโหลดภาพไม่สำเร็จครับ ลองใหม่อีกครั้งนะครับ"
+    except Exception as e:
+        print(">>> Image Upload Error:", e)
+        reply_text = "เกิดข้อผิดพลาดขณะอัปโหลดภาพครับ"
 
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
-
-@app.get("/redirect")
-async def redirect_with_affiliate(img: str):
-    affiliate_link = "https://s.shopee.co.th/8zrT7bBLKl"
-    return RedirectResponse(url=f"{affiliate_link}?target={img}")
