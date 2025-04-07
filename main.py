@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage, FlexSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 import openai
 import os
 import json
@@ -97,7 +97,6 @@ def check_quota(user_id):
     return False
 
 def generate_image(prompt):
-    print(f">>> เรียก DALL·E ด้วย prompt: {prompt}")
     try:
         response = openai.Image.create(
             model="dall-e-3",
@@ -106,41 +105,11 @@ def generate_image(prompt):
             size="1024x1024"
         )
         image_url = response["data"][0]["url"]
-        print(f">>> สำเร็จ! ได้ลิงก์ภาพ: {image_url}")
         imgur_url = upload_to_imgur(image_url)
         return imgur_url
     except Exception as e:
         print(">>> Image Generation Error:", e)
         return None
-
-def get_response(user_id, user_text):
-    user_logs[user_id].append(user_text)
-
-    if "ของเด็ด" in user_text:
-        category = random.choice(list(affiliate_links.keys()))
-        return f"ของเด็ดวันนี้ บังแนะนำหมวด: {category} 🔥\n👉 {affiliate_links[category]}"
-
-    messages = [{"role": "system", "content": '''
-คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
-- ตอบให้เข้าใจง่าย กระชับ ชัดเจน
-- ไม่ต้องแนะนำตัว
-- อย่าเขียนเยิ่นเย้อหรือวกวน
-- ใช้ภาษาคนไทยทั่วไป ไม่ใช้คำยาก
-- ถ้าผู้ใช้ถามเรื่องสินค้า หรือสิ่งของ ให้แนะนำแบบสุภาพ พร้อมแนบลิงก์ Shopee ถ้าเกี่ยวข้อง
-- อย่าตอบเหมือน ChatGPT หรือพูดว่า "นี่คือตัวอย่าง" / "แน่นอน" / "ฉันสามารถ..." 
-- อย่าพูดเกินจริง หรือบิดเบือน
-'''}]
-    for msg in user_logs[user_id][-5:]:
-        messages.append({"role": "user", "content": msg})
-
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=messages
-    )
-    reply = response["choices"][0]["message"]["content"].strip()
-    link = find_affiliate_link(user_text)
-    reply += f"\n\nลองดูเพิ่มเติมได้ที่นี่ 👉 {link}"
-    return reply
 
 @app.post("/webhook")
 async def callback(request: Request):
@@ -156,7 +125,6 @@ async def callback(request: Request):
 def handle_message(event):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
-    print(f">>> {user_id}: {user_text}")
 
     if not check_quota(user_id):
         reply_text = (
@@ -176,7 +144,7 @@ def handle_message(event):
         prompt = prompt.strip()
         image_url = generate_image(prompt)
         affiliate_link = find_affiliate_link(user_text)
-        redirect_url = f"{affiliate_link}?redirect={image_url}"
+        redirect_url = f"https://jazzy-youtiao-edd922.netlify.app/view.html?img={image_url}&aff={affiliate_link}"
 
         if image_url:
             flex_message = {
@@ -213,16 +181,10 @@ def handle_message(event):
             }
             line_bot_api.reply_message(
                 event.reply_token,
-                [
-                    ImageSendMessage(
-                        original_content_url=image_url,
-                        preview_image_url=image_url
-                    ),
-                    FlexSendMessage(
-                        alt_text="ดูภาพเต็มพร้อมของเด็ด",
-                        contents=flex_message
-                    )
-                ]
+                FlexSendMessage(
+                    alt_text="ดูภาพเต็มพร้อมของเด็ด",
+                    contents=flex_message
+                )
             )
         else:
             line_bot_api.reply_message(
@@ -231,8 +193,28 @@ def handle_message(event):
             )
         return
 
+    messages = [{"role": "system", "content": '''
+คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
+- ตอบให้เข้าใจง่าย กระชับ ชัดเจน
+- ไม่ต้องแนะนำตัว
+- อย่าเขียนเยิ่นเย้อหรือวกวน
+- ใช้ภาษาคนไทยทั่วไป ไม่ใช้คำยาก
+- ถ้าผู้ใช้ถามเรื่องสินค้า หรือสิ่งของ ให้แนะนำแบบสุภาพ พร้อมแนบลิงก์ Shopee ถ้าเกี่ยวข้อง
+- อย่าตอบเหมือน ChatGPT หรือพูดว่า "นี่คือตัวอย่าง" / "แน่นอน" / "ฉันสามารถ..." 
+- อย่าพูดเกินจริง หรือบิดเบือน
+'''}]
+    user_logs[user_id].append(user_text)
+    for msg in user_logs[user_id][-5:]:
+        messages.append({"role": "user", "content": msg})
+
     try:
-        reply_text = get_response(user_id, user_text)
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages
+        )
+        reply_text = response["choices"][0]["message"]["content"].strip()
+        link = find_affiliate_link(user_text)
+        reply_text += f"\n\nลองดูเพิ่มเติมได้ที่นี่ 👉 {link}"
     except Exception as e:
         print(">>> GPT Error:", e)
         reply_text = "ขออภัยครับ บังยังตอบไม่ได้ตอนนี้ 🧠"
