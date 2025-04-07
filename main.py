@@ -8,6 +8,7 @@ import json
 from datetime import datetime
 from collections import defaultdict
 import random
+import requests
 
 app = FastAPI()
 
@@ -15,15 +16,14 @@ app = FastAPI()
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
+IMGUR_CLIENT_ID = os.getenv("IMGUR_CLIENT_ID")
 
 # ระบบจำข้อมูล
 user_logs = defaultdict(list)
 user_quota = {}
 MAX_MESSAGES_PER_DAY = 20
 
-# ลิงก์ Affiliate Shopee (ใช้ลิงก์กลางสำหรับภาพ)
-affiliate_image_redirect = "https://s.shopee.co.th/8zrT7bBLKl?redirect="
-
+# ลิงก์ Affiliate Shopee
 affiliate_links = {
     "เสื้อผ้าชาย": "https://s.shopee.co.th/8zrT7bBLKl",
     "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk",
@@ -76,8 +76,16 @@ category_keywords = {
 def find_affiliate_link(text):
     for category, keywords in category_keywords.items():
         if any(k in text for k in keywords):
-            return f"\n\nลองดูเพิ่มเติมได้ที่นี่ 👉 {affiliate_links[category]}"
-    return ""
+            return affiliate_links[category]
+    return affiliate_links["เสื้อผ้าชาย"]
+
+def upload_to_imgur(image_url):
+    headers = {"Authorization": f"Client-ID {IMGUR_CLIENT_ID}"}
+    data = {"image": image_url}
+    res = requests.post("https://api.imgur.com/3/image", headers=headers, data=data)
+    if res.status_code == 200:
+        return res.json()["data"]["link"]
+    return image_url
 
 def check_quota(user_id):
     today = datetime.now().date()
@@ -99,8 +107,8 @@ def generate_image(prompt):
         )
         image_url = response["data"][0]["url"]
         print(f">>> สำเร็จ! ได้ลิงก์ภาพ: {image_url}")
-        # แปะลิงก์ affiliate แบบ redirect
-        return affiliate_image_redirect + image_url
+        imgur_url = upload_to_imgur(image_url)
+        return imgur_url
     except Exception as e:
         print(">>> Image Generation Error:", e)
         return None
@@ -108,7 +116,6 @@ def generate_image(prompt):
 def get_response(user_id, user_text):
     user_logs[user_id].append(user_text)
 
-    # ของเด็ดประจำวัน
     if "ของเด็ด" in user_text:
         category = random.choice(list(affiliate_links.keys()))
         return f"ของเด็ดวันนี้ บังแนะนำหมวด: {category} 🔥\n👉 {affiliate_links[category]}"
@@ -131,7 +138,8 @@ def get_response(user_id, user_text):
         messages=messages
     )
     reply = response["choices"][0]["message"]["content"].strip()
-    reply += find_affiliate_link(user_text)
+    link = find_affiliate_link(user_text)
+    reply += f"\n\nลองดูเพิ่มเติมได้ที่นี่ 👉 {link}"
     return reply
 
 @app.post("/webhook")
@@ -161,20 +169,23 @@ def handle_message(event):
         )
         return
 
-    # ตรวจคำสั่งสร้างภาพ
     if any(user_text.startswith(x) for x in ["สร้างภาพ", "วาด", "สร้างรูป"]):
         prompt = user_text
         for prefix in ["สร้างภาพ", "วาด", "สร้างรูป"]:
             prompt = prompt.replace(prefix, "")
         prompt = prompt.strip()
         image_url = generate_image(prompt)
+        link = find_affiliate_link(user_text)
         if image_url:
             line_bot_api.reply_message(
                 event.reply_token,
-                ImageSendMessage(
-                    original_content_url=image_url,
-                    preview_image_url=image_url
-                )
+                [
+                    ImageSendMessage(
+                        original_content_url=image_url,
+                        preview_image_url=image_url
+                    ),
+                    TextSendMessage(text=f"ดูของเด็ดเกี่ยวกับภาพนี้ที่นี่เลย 👉 {link}")
+                ]
             )
         else:
             line_bot_api.reply_message(
