@@ -21,7 +21,9 @@ user_logs = defaultdict(list)
 user_quota = {}
 MAX_MESSAGES_PER_DAY = 20
 
-# ลิงก์ Affiliate Shopee
+# ลิงก์ Affiliate Shopee (ใช้ลิงก์กลางสำหรับภาพ)
+affiliate_image_redirect = "https://s.shopee.co.th/8zrT7bBLKl?redirect="
+
 affiliate_links = {
     "เสื้อผ้าชาย": "https://s.shopee.co.th/8zrT7bBLKl",
     "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk",
@@ -97,7 +99,8 @@ def generate_image(prompt):
         )
         image_url = response["data"][0]["url"]
         print(f">>> สำเร็จ! ได้ลิงก์ภาพ: {image_url}")
-        return image_url
+        # แปะลิงก์ affiliate แบบ redirect
+        return affiliate_image_redirect + image_url
     except Exception as e:
         print(">>> Image Generation Error:", e)
         return None
@@ -159,8 +162,11 @@ def handle_message(event):
         return
 
     # ตรวจคำสั่งสร้างภาพ
-    if user_text.startswith("สร้างภาพ") or user_text.startswith("วาด"):
-        prompt = user_text.replace("สร้างภาพ", "").replace("วาด", "").strip()
+    if any(user_text.startswith(x) for x in ["สร้างภาพ", "วาด", "สร้างรูป"]):
+        prompt = user_text
+        for prefix in ["สร้างภาพ", "วาด", "สร้างรูป"]:
+            prompt = prompt.replace(prefix, "")
+        prompt = prompt.strip()
         image_url = generate_image(prompt)
         if image_url:
             line_bot_api.reply_message(
