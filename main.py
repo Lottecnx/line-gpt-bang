@@ -87,15 +87,6 @@ def upload_to_imgur(image_url):
         return res.json()["data"]["link"]
     return image_url
 
-def check_quota(user_id):
-    today = datetime.now().date()
-    if user_id not in user_quota or user_quota[user_id]["date"] != today:
-        user_quota[user_id] = {"date": today, "count": 0}
-    if user_quota[user_id]["count"] < MAX_MESSAGES_PER_DAY:
-        user_quota[user_id]["count"] += 1
-        return True
-    return False
-
 def generate_image(prompt):
     try:
         response = openai.Image.create(
@@ -104,122 +95,11 @@ def generate_image(prompt):
             n=1,
             size="1024x1024"
         )
-        image_url = response["data"][0]["url"]
-        imgur_url = upload_to_imgur(image_url)
+        original_url = response["data"][0]["url"]
+        print(">>> Original Image URL from OpenAI:", original_url)
+        imgur_url = upload_to_imgur(original_url)
+        print(">>> Uploaded to Imgur:", imgur_url)
         return imgur_url
     except Exception as e:
         print(">>> Image Generation Error:", e)
         return None
-
-@app.post("/webhook")
-async def callback(request: Request):
-    body = await request.body()
-    signature = request.headers.get("X-Line-Signature")
-    try:
-        handler.handle(body.decode(), signature)
-    except Exception as e:
-        print(">>> Error:", e)
-    return JSONResponse(content={"status": "ok"})
-
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    user_text = event.message.text.strip()
-    user_id = event.source.user_id
-
-    if not check_quota(user_id):
-        reply_text = (
-            "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\n"
-            "กลับมาใหม่พรุ่งนี้ หรือสมัคร Premium เพื่อใช้งานได้ไม่จำกัด!"
-        )
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=reply_text)
-        )
-        return
-
-    if any(user_text.startswith(x) for x in ["สร้างภาพ", "วาด", "สร้างรูป"]):
-        prompt = user_text
-        for prefix in ["สร้างภาพ", "วาด", "สร้างรูป"]:
-            prompt = prompt.replace(prefix, "")
-        prompt = prompt.strip()
-        image_url = generate_image(prompt)
-        affiliate_link = find_affiliate_link(user_text)
-        redirect_url = f"https://celadon-beijinho-310047.netlify.app/view.html?img={image_url}&aff={affiliate_link}"
-
-        if image_url:
-            flex_message = {
-                "type": "bubble",
-                "hero": {
-                    "type": "image",
-                    "url": image_url,
-                    "size": "full",
-                    "aspectRatio": "1:1",
-                    "aspectMode": "cover"
-                },
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": "ดูภาพเต็มพร้อมของเด็ด",
-                            "weight": "bold",
-                            "size": "md",
-                            "wrap": True
-                        },
-                        {
-                            "type": "button",
-                            "style": "primary",
-                            "action": {
-                                "type": "uri",
-                                "label": "กดดูเลย",
-                                "uri": redirect_url
-                            }
-                        }
-                    ]
-                }
-            }
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(
-                    alt_text="ดูภาพเต็มพร้อมของเด็ด",
-                    contents=flex_message
-                )
-            )
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="ขอโทษครับ บังสร้างภาพไม่สำเร็จ ลองใหม่อีกครั้งนะ")
-            )
-        return
-
-    messages = [{"role": "system", "content": '''
-คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
-- ตอบให้เข้าใจง่าย กระชับ ชัดเจน
-- ไม่ต้องแนะนำตัว
-- อย่าเขียนเยิ่นเย้อหรือวกวน
-- ใช้ภาษาคนไทยทั่วไป ไม่ใช้คำยาก
-- ถ้าผู้ใช้ถามเรื่องสินค้า หรือสิ่งของ ให้แนะนำแบบสุภาพ พร้อมแนบลิงก์ Shopee ถ้าเกี่ยวข้อง
-- อย่าตอบเหมือน ChatGPT หรือพูดว่า "นี่คือตัวอย่าง" / "แน่นอน" / "ฉันสามารถ..." 
-- อย่าพูดเกินจริง หรือบิดเบือน
-'''}]
-    user_logs[user_id].append(user_text)
-    for msg in user_logs[user_id][-5:]:
-        messages.append({"role": "user", "content": msg})
-
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=messages
-        )
-        reply_text = response["choices"][0]["message"]["content"].strip()
-        link = find_affiliate_link(user_text)
-        reply_text += f"\n\nลองดูเพิ่มเติมได้ที่นี่ 👉 {link}"
-    except Exception as e:
-        print(">>> GPT Error:", e)
-        reply_text = "ขออภัยครับ บังยังตอบไม่ได้ตอนนี้ 🧠"
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
