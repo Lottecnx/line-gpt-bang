@@ -82,10 +82,15 @@ def find_affiliate_link(text):
 def upload_to_imgur(image_url):
     headers = {"Authorization": f"Client-ID {IMGUR_CLIENT_ID}"}
     data = {"image": image_url}
-    res = requests.post("https://api.imgur.com/3/image", headers=headers, data=data)
-    if res.status_code == 200:
-        return res.json()["data"]["link"]
-    return image_url
+    try:
+        res = requests.post("https://api.imgur.com/3/image", headers=headers, data=data)
+        if res.status_code == 200:
+            return res.json()["data"]["link"]
+        else:
+            print(">>> Imgur upload failed:", res.text)
+    except Exception as e:
+        print(">>> Imgur Exception:", e)
+    return None
 
 def generate_image(prompt):
     try:
@@ -96,10 +101,15 @@ def generate_image(prompt):
             size="1024x1024"
         )
         original_url = response["data"][0]["url"]
-        print(">>> Original Image URL from OpenAI:", original_url)
+        print(">>> สร้างภาพ DALL·E สำเร็จ:", original_url)
+
         imgur_url = upload_to_imgur(original_url)
-        print(">>> Uploaded to Imgur:", imgur_url)
-        return imgur_url
+        if imgur_url:
+            return imgur_url
+        else:
+            print(">>> ไม่ได้ imgur URL")
+            return None
+
     except Exception as e:
-        print(">>> Image Generation Error:", e)
+        print(">>> ERROR สร้างภาพ:", e)
         return None
