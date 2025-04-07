@@ -87,6 +87,7 @@ def check_quota(user_id):
     return False
 
 def generate_image(prompt):
+    print(f">>> เรียก DALL·E ด้วย prompt: {prompt}")
     try:
         response = openai.Image.create(
             model="dall-e-3",
@@ -94,7 +95,9 @@ def generate_image(prompt):
             n=1,
             size="1024x1024"
         )
-        return response["data"][0]["url"]
+        image_url = response["data"][0]["url"]
+        print(f">>> สำเร็จ! ได้ลิงก์ภาพ: {image_url}")
+        return image_url
     except Exception as e:
         print(">>> Image Generation Error:", e)
         return None
