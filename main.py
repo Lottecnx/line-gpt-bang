@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage, FlexSendMessage
 import openai
 import os
 import json
@@ -175,8 +175,42 @@ def handle_message(event):
             prompt = prompt.replace(prefix, "")
         prompt = prompt.strip()
         image_url = generate_image(prompt)
-        link = find_affiliate_link(user_text)
+        affiliate_link = find_affiliate_link(user_text)
+        redirect_url = f"{affiliate_link}?redirect={image_url}"
+
         if image_url:
+            flex_message = {
+                "type": "bubble",
+                "hero": {
+                    "type": "image",
+                    "url": image_url,
+                    "size": "full",
+                    "aspectRatio": "1:1",
+                    "aspectMode": "cover"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "ดูภาพเต็มพร้อมของเด็ด",
+                            "weight": "bold",
+                            "size": "md",
+                            "wrap": True
+                        },
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "action": {
+                                "type": "uri",
+                                "label": "กดดูเลย",
+                                "uri": redirect_url
+                            }
+                        }
+                    ]
+                }
+            }
             line_bot_api.reply_message(
                 event.reply_token,
                 [
@@ -184,7 +218,10 @@ def handle_message(event):
                         original_content_url=image_url,
                         preview_image_url=image_url
                     ),
-                    TextSendMessage(text=f"ดูของเด็ดเกี่ยวกับภาพนี้ที่นี่เลย 👉 {link}")
+                    FlexSendMessage(
+                        alt_text="ดูภาพเต็มพร้อมของเด็ด",
+                        contents=flex_message
+                    )
                 ]
             )
         else:
