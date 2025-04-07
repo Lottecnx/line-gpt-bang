@@ -144,7 +144,7 @@ def handle_message(event):
         prompt = prompt.strip()
         image_url = generate_image(prompt)
         affiliate_link = find_affiliate_link(user_text)
-        redirect_url = f"https://jazzy-youtiao-edd922.netlify.app/view.html?img={image_url}&aff={affiliate_link}"
+        redirect_url = f"https://celadon-beijinho-310047.netlify.app/view.html?img={image_url}&aff={affiliate_link}"
 
         if image_url:
             flex_message = {
