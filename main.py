@@ -1,14 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage
 import openai
 import os
 import json
 from datetime import datetime
 from collections import defaultdict
 import random
-import requests
 
 app = FastAPI()
 
@@ -16,15 +15,13 @@ app = FastAPI()
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
-IMGUR_CLIENT_ID = os.getenv("IMGUR_CLIENT_ID")  # ใส่ Client ID ของ Imgur
 
 # ระบบจำข้อมูล
 user_logs = defaultdict(list)
 user_quota = {}
-user_latest_image = {}
 MAX_MESSAGES_PER_DAY = 20
 
-# Shopee Affiliate Links
+# ลิงก์ Affiliate Shopee
 affiliate_links = {
     "เสื้อผ้าชาย": "https://s.shopee.co.th/8zrT7bBLKl",
     "เสื้อผ้าหญิง": "https://s.shopee.co.th/AUgGuu4tJk",
@@ -89,23 +86,36 @@ def check_quota(user_id):
         return True
     return False
 
+def generate_image(prompt):
+    try:
+        response = openai.Image.create(
+            model="dall-e-3",
+            prompt=prompt,
+            n=1,
+            size="1024x1024"
+        )
+        return response["data"][0]["url"]
+    except Exception as e:
+        print(">>> Image Generation Error:", e)
+        return None
+
 def get_response(user_id, user_text):
     user_logs[user_id].append(user_text)
 
+    # ของเด็ดประจำวัน
     if "ของเด็ด" in user_text:
         category = random.choice(list(affiliate_links.keys()))
         return f"ของเด็ดวันนี้ บังแนะนำหมวด: {category} 🔥\n👉 {affiliate_links[category]}"
-
-    if "สร้างภาพ" in user_text and user_id in user_latest_image:
-        latest_image_url = user_latest_image[user_id]
-        redirect_url = f"https://s.shopee.co.th/8zrT7bBLKl?img={latest_image_url}"
-        return f"ภาพของคุณพร้อมแล้วครับ 🎨\nดูได้ที่นี่ 👉 {redirect_url}"
 
     messages = [{"role": "system", "content": '''
 คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
 - ตอบให้เข้าใจง่าย กระชับ ชัดเจน
 - ไม่ต้องแนะนำตัว
+- อย่าเขียนเยิ่นเย้อหรือวกวน
 - ใช้ภาษาคนไทยทั่วไป ไม่ใช้คำยาก
+- ถ้าผู้ใช้ถามเรื่องสินค้า หรือสิ่งของ ให้แนะนำแบบสุภาพ พร้อมแนบลิงก์ Shopee ถ้าเกี่ยวข้อง
+- อย่าตอบเหมือน ChatGPT หรือพูดว่า "นี่คือตัวอย่าง" / "แน่นอน" / "ฉันสามารถ..." 
+- อย่าพูดเกินจริง หรือบิดเบือน
 '''}]
     for msg in user_logs[user_id][-5:]:
         messages.append({"role": "user", "content": msg})
@@ -118,18 +128,6 @@ def get_response(user_id, user_text):
     reply += find_affiliate_link(user_text)
     return reply
 
-def upload_to_imgur(image_bytes):
-    url = "https://api.imgur.com/3/image"
-    headers = {"Authorization": f"Client-ID {IMGUR_CLIENT_ID}"}
-    response = requests.post(url, headers=headers, files={"image": image_bytes})
-
-    print(">>> IMGUR STATUS:", response.status_code)
-    print(">>> IMGUR RESPONSE:", response.text)
-
-    if response.status_code == 200:
-        return response.json()["data"]["link"]
-    return None
-
 @app.post("/webhook")
 async def callback(request: Request):
     body = await request.body()
@@ -137,41 +135,52 @@ async def callback(request: Request):
     try:
         handler.handle(body.decode(), signature)
     except Exception as e:
-        print(">>> Webhook Error:", e)
+        print(">>> Error:", e)
     return JSONResponse(content={"status": "ok"})
 
 @handler.add(MessageEvent, message=TextMessage)
-def handle_text(event):
+def handle_message(event):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
     print(f">>> {user_id}: {user_text}")
 
     if not check_quota(user_id):
-        reply_text = "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\nกลับมาใหม่พรุ่งนี้นะครับ!"
-    else:
-        try:
-            reply_text = get_response(user_id, user_text)
-        except Exception as e:
-            print(">>> GPT Error:", e)
-            reply_text = "ขออภัยครับ บังยังตอบไม่ได้ตอนนี้ 🧠"
+        reply_text = (
+            "วันนี้คุณใช้ครบ 20 ข้อความแล้วครับ 😢\n"
+            "กลับมาใหม่พรุ่งนี้ หรือสมัคร Premium เพื่อใช้งานได้ไม่จำกัด!"
+        )
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=reply_text)
+        )
+        return
 
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
-
-@handler.add(MessageEvent, message=ImageMessage)
-def handle_image(event):
-    user_id = event.source.user_id
-    message_id = event.message.id
-    try:
-        content = line_bot_api.get_message_content(message_id)
-        image_data = b''.join(content.iter_content())
-        imgur_url = upload_to_imgur(image_data)
-        if imgur_url:
-            user_latest_image[user_id] = imgur_url
-            reply_text = "รับภาพแล้วครับ! 📷\nพิมพ์ว่า 'สร้างภาพการ์ตูน' เพื่อเริ่มใช้งาน"
+    # ตรวจคำสั่งสร้างภาพ
+    if user_text.startswith("สร้างภาพ") or user_text.startswith("วาด"):
+        prompt = user_text.replace("สร้างภาพ", "").replace("วาด", "").strip()
+        image_url = generate_image(prompt)
+        if image_url:
+            line_bot_api.reply_message(
+                event.reply_token,
+                ImageSendMessage(
+                    original_content_url=image_url,
+                    preview_image_url=image_url
+                )
+            )
         else:
-            reply_text = "อัปโหลดภาพไม่สำเร็จครับ ลองใหม่อีกครั้งนะครับ"
-    except Exception as e:
-        print(">>> Image Upload Error:", e)
-        reply_text = "เกิดข้อผิดพลาดขณะอัปโหลดภาพครับ"
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="ขอโทษครับ บังสร้างภาพไม่สำเร็จ ลองใหม่อีกครั้งนะ")
+            )
+        return
 
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    try:
+        reply_text = get_response(user_id, user_text)
+    except Exception as e:
+        print(">>> GPT Error:", e)
+        reply_text = "ขออภัยครับ บังยังตอบไม่ได้ตอนนี้ 🧠"
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_text)
+    )
