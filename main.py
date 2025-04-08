@@ -9,6 +9,8 @@ from datetime import datetime
 from collections import defaultdict
 import random
 import requests
+import gspread
+from google.oauth2.service_account import Credentials
 
 app = FastAPI()
 
@@ -111,6 +113,14 @@ def generate_image(prompt):
         print(">>> Image Generation Error:", e)
         return None
 
+def get_gspread_client():
+    json_str = os.getenv("GOOGLE_SHEETS_JSON")
+    service_account_info = json.loads(json_str)
+    creds = Credentials.from_service_account_info(service_account_info, scopes=[
+        "https://www.googleapis.com/auth/spreadsheets"
+    ])
+    return gspread.authorize(creds)
+
 @app.post("/webhook")
 async def callback(request: Request):
     body = await request.body()
@@ -147,6 +157,14 @@ def handle_message(event):
         affiliate_link = find_affiliate_link(user_text)
         image_id = f"id{random.randint(1000,9999)}"
         redirect_url = f"https://celadon-beijinho-310047.netlify.app/view.html?id={image_id}"
+
+        # ✅ บันทึกลง Google Sheets
+        try:
+            gc = get_gspread_client()
+            sheet = gc.open_by_key("1mtKs-stKPvl4J-j6U2L5YEWbr5Ct9FIuCwKFOmcjBY8").sheet1
+            sheet.append_row([image_id, image_url, affiliate_link])
+        except Exception as e:
+            print(">>> Google Sheets Error:", e)
 
         if image_url:
             flex_message = {
@@ -195,7 +213,6 @@ def handle_message(event):
             )
         return
 
-    # ถ้าไม่ใช่คำสั่งสร้างภาพ = ตอบ GPT ปกติ
     messages = [{"role": "system", "content": '''
 คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
 - ตอบให้เข้าใจง่าย กระชับ ชัดเจน
@@ -203,7 +220,7 @@ def handle_message(event):
 - อย่าเขียนเยิ่นเย้อหรือวกวน
 - ใช้ภาษาคนไทยทั่วไป ไม่ใช้คำยาก
 - ถ้าผู้ใช้ถามเรื่องสินค้า หรือสิ่งของ ให้แนะนำแบบสุภาพ พร้อมแนบลิงก์ Shopee ถ้าเกี่ยวข้อง
-- อย่าตอบเหมือน ChatGPT หรือพูดว่า "นี่คือตัวอย่าง" / "แน่นอน" / "ฉันสามารถ..." 
+- อย่าตอบเหมือน ChatGPT หรือพูดว่า "นี่คือตัวอย่าง" / "แน่นอน" / "ฉันสามารถ..."
 - อย่าพูดเกินจริง หรือบิดเบือน
 '''}]
     user_logs[user_id].append(user_text)
@@ -226,4 +243,3 @@ def handle_message(event):
         event.reply_token,
         TextSendMessage(text=reply_text)
     )
-
