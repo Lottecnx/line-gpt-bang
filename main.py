@@ -1,13 +1,14 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageSendMessage, FlexSendMessage
 import openai
 import os
 import json
 from datetime import datetime
 from collections import defaultdict
 import random
+import requests
 
 app = FastAPI()
 
@@ -15,6 +16,7 @@ app = FastAPI()
 line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
+IMGUR_CLIENT_ID = os.getenv("IMGUR_CLIENT_ID")
 
 # ระบบจำข้อมูล
 user_logs = defaultdict(list)
@@ -71,34 +73,18 @@ category_keywords = {
     "เกมและอุปกรณ์เสริม": ["เกม", "จอย", "เพลย์"]
 }
 
-def find_affiliate_link(text):
-    for category, keywords in category_keywords.items():
-        if any(k in text for k in keywords):
-            return affiliate_links[category]
-    return list(affiliate_links.values())[0]
-
-def generate_image(prompt):
+def upload_to_imgur(image_url):
+    headers = {"Authorization": f"Client-ID {IMGUR_CLIENT_ID}"}
+    data = {"image": image_url}
     try:
-        response = openai.Image.create(
-            model="dall-e-3",
-            prompt=prompt,
-            n=1,
-            size="1024x1024"
-        )
-        return response["data"][0]["url"]
+        res = requests.post("https://api.imgur.com/3/image", headers=headers, data=data)
+        if res.status_code == 200:
+            return res.json()["data"]["link"]
+        else:
+            print(">>> Imgur upload failed:", res.text)
     except Exception as e:
-        print(">>> Image Generation Error:", e)
-        return None
-
-@app.post("/webhook")
-async def callback(request: Request):
-    body = await request.body()
-    signature = request.headers.get("X-Line-Signature")
-    try:
-        handler.handle(body.decode(), signature)
-    except Exception as e:
-        print(">>> Error:", e)
-    return JSONResponse(content={"status": "ok"})
+        print(">>> Imgur Exception:", e)
+    return None
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -117,57 +103,43 @@ def handle_message(event):
         )
         return
 
-    if user_text.startswith("สร้างภาพ") or user_text.startswith("วาด"):
-        prompt = user_text.replace("สร้างภาพ", "").replace("วาด", "").strip()
+    if user_text.startswith("สร้างภาพ") or user_text.startswith("สร้างรูป") or user_text.startswith("วาด"):
+        prompt = user_text.replace("สร้างภาพ", "").replace("สร้างรูป", "").replace("วาด", "").strip()
         image_url = generate_image(prompt)
         if image_url:
-            affiliate_url = find_affiliate_link(user_text)
-            full_page_url = f"https://sparkling-bienenstitch-535530.netlify.app/?img={image_url}&link={affiliate_url}"
+            from urllib.parse import quote
+            from linebot.models import URIAction, ButtonComponent, BoxComponent, TextComponent, BubbleContainer
 
-            flex = {
-                "type": "bubble",
-                "hero": {
-                    "type": "image",
-                    "url": image_url,
-                    "size": "full",
-                    "aspectRatio": "1:1",
-                    "aspectMode": "cover"
-                },
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": "ดูภาพเต็มพร้อมของเด็ด",
-                            "weight": "bold",
-                            "size": "md"
-                        },
-                        {
-                            "type": "button",
-                            "style": "primary",
-                            "action": {
-                                "type": "uri",
-                                "label": "กดดูเลย",
-                                "uri": full_page_url
-                            },
-                            "margin": "lg"
-                        }
-                    ]
-                }
-            }
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(alt_text="ดูภาพที่คุณสร้าง", contents=flex)
+            aff_link = find_affiliate_link(prompt).replace("\n\nลองดูเพิ่มเติมได้ที่นี่ 👉 ", "")
+            full_url = f"https://sparkling-bienenstitch-535530.netlify.app/?img={quote(image_url)}&aff={quote(aff_link)}"
+
+            flex_message = FlexSendMessage(
+                alt_text="ดูภาพเต็มพร้อมของเด็ด",
+                contents=BubbleContainer(
+                    hero={
+                        "type": "image",
+                        "url": image_url,
+                        "size": "full",
+                        "aspectRatio": "1:1",
+                        "aspectMode": "cover"
+                    },
+                    body=BoxComponent(
+                        layout="vertical",
+                        contents=[
+                            TextComponent(text="ดูภาพเต็มพร้อมของเด็ด", weight="bold", size="md"),
+                            ButtonComponent(
+                                action=URIAction(label="กดดูเลย", uri=full_url),
+                                style="primary",
+                                color="#00C851"
+                            )
+                        ]
+                    )
+                )
             )
+            line_bot_api.reply_message(event.reply_token, flex_message)
         else:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="ขอโทษครับ บังสร้างภาพไม่สำเร็จ ลองใหม่อีกครั้งนะ")
             )
         return
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text="พิมพ์ 'สร้างภาพ หมาใส่แว่น' หรือ 'ของเด็ด' ดูได้นะครับ")
-    )
