@@ -75,19 +75,9 @@ def find_affiliate_link(text):
     for category, keywords in category_keywords.items():
         if any(k in text for k in keywords):
             return affiliate_links[category]
-    return affiliate_links["เสื้อผ้าชาย"]
-
-def check_quota(user_id):
-    today = datetime.now().date()
-    if user_id not in user_quota or user_quota[user_id]["date"] != today:
-        user_quota[user_id] = {"date": today, "count": 0}
-    if user_quota[user_id]["count"] < MAX_MESSAGES_PER_DAY:
-        user_quota[user_id]["count"] += 1
-        return True
-    return False
+    return list(affiliate_links.values())[0]
 
 def generate_image(prompt):
-    print(f">>> เรียก DALL·E ด้วย prompt: {prompt}")
     try:
         response = openai.Image.create(
             model="dall-e-3",
@@ -95,9 +85,7 @@ def generate_image(prompt):
             n=1,
             size="1024x1024"
         )
-        image_url = response["data"][0]["url"]
-        print(f">>> สำเร็จ! ได้ลิงก์ภาพ: {image_url}")
-        return image_url
+        return response["data"][0]["url"]
     except Exception as e:
         print(">>> Image Generation Error:", e)
         return None
@@ -133,38 +121,45 @@ def handle_message(event):
         prompt = user_text.replace("สร้างภาพ", "").replace("วาด", "").strip()
         image_url = generate_image(prompt)
         if image_url:
-            flex_message = FlexSendMessage(
-                alt_text="ดูภาพเต็ม",
-                contents={
-                    "type": "bubble",
-                    "hero": {
-                        "type": "image",
-                        "url": image_url,
-                        "size": "full",
-                        "aspectRatio": "1:1",
-                        "aspectMode": "cover"
-                    },
-                    "footer": {
-                        "type": "box",
-                        "layout": "vertical",
-                        "spacing": "sm",
-                        "contents": [
-                            {
-                                "type": "button",
-                                "style": "link",
-                                "height": "sm",
-                                "action": {
-                                    "type": "uri",
-                                    "label": "ดูภาพเต็ม",
-                                    "uri": find_affiliate_link(prompt)
-                                }
-                            }
-                        ],
-                        "flex": 0
-                    }
+            affiliate_url = find_affiliate_link(user_text)
+            full_page_url = f"https://sparkling-bienenstitch-535530.netlify.app/?img={image_url}&link={affiliate_url}"
+
+            flex = {
+                "type": "bubble",
+                "hero": {
+                    "type": "image",
+                    "url": image_url,
+                    "size": "full",
+                    "aspectRatio": "1:1",
+                    "aspectMode": "cover"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "ดูภาพเต็มพร้อมของเด็ด",
+                            "weight": "bold",
+                            "size": "md"
+                        },
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "action": {
+                                "type": "uri",
+                                "label": "กดดูเลย",
+                                "uri": full_page_url
+                            },
+                            "margin": "lg"
+                        }
+                    ]
                 }
+            }
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text="ดูภาพที่คุณสร้าง", contents=flex)
             )
-            line_bot_api.reply_message(event.reply_token, flex_message)
         else:
             line_bot_api.reply_message(
                 event.reply_token,
@@ -172,8 +167,7 @@ def handle_message(event):
             )
         return
 
-    reply_text = "พิมพ์ \"สร้างภาพ\" ตามด้วยคำที่ต้องการ เช่น 'สร้างภาพ แมวใส่หมวก'"
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply_text)
+        TextSendMessage(text="พิมพ์ 'สร้างภาพ หมาใส่แว่น' หรือ 'ของเด็ด' ดูได้นะครับ")
     )
