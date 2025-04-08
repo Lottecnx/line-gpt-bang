@@ -138,55 +138,64 @@ def handle_message(event):
         return
 
     if any(user_text.startswith(x) for x in ["สร้างภาพ", "วาด", "สร้างรูป"]):
-    prompt = user_text
-    for prefix in ["สร้างภาพ", "วาด", "สร้างรูป"]:
-        prompt = prompt.replace(prefix, "")
-    prompt = prompt.strip()
+        prompt = user_text
+        for prefix in ["สร้างภาพ", "วาด", "สร้างรูป"]:
+            prompt = prompt.replace(prefix, "")
+        prompt = prompt.strip()
 
-    image_url = generate_image(prompt)
-    affiliate_link = find_affiliate_link(user_text)
+        image_url = generate_image(prompt)
+        affiliate_link = find_affiliate_link(user_text)
+        image_id = f"id{random.randint(1000,9999)}"
+        redirect_url = f"https://celadon-beijinho-310047.netlify.app/view.html?id={image_id}"
 
-    # สร้าง ID แบบสุ่ม หรือจาก timestamp (แนะนำให้ใช้ uuid หรือ hash จริงในระบบจริง)
-    image_id = f"id{random.randint(1000,9999)}"
-    
-    # เก็บ id → url ไว้ที่ไหนสักที่ ถ้าจะขยาย แต่ในที่นี้ส่ง id ไปอย่างเดียว
-    redirect_url = f"https://celadon-beijinho-310047.netlify.app/view.html?id={image_id}"
-
-    # ตรงนี้ preview ใช้ DALL·E, แต่ปลายทางถูกจัดการฝั่ง HTML
-    if image_url:
-        flex_message = {
-            "type": "bubble",
-            "hero": {
-                "type": "image",
-                "url": image_url,
-                "size": "full",
-                "aspectRatio": "1:1",
-                "aspectMode": "cover"
-            },
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": "ดูภาพเต็มพร้อมของเด็ด", "weight": "bold", "size": "md", "wrap": True},
-                    {"type": "button", "style": "primary", "action": {
-                        "type": "uri",
-                        "label": "กดดูเลย",
-                        "uri": redirect_url
-                    }}
-                ]
+        if image_url:
+            flex_message = {
+                "type": "bubble",
+                "hero": {
+                    "type": "image",
+                    "url": image_url,
+                    "size": "full",
+                    "aspectRatio": "1:1",
+                    "aspectMode": "cover"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "ดูภาพเต็มพร้อมของเด็ด",
+                            "weight": "bold",
+                            "size": "md",
+                            "wrap": True
+                        },
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "action": {
+                                "type": "uri",
+                                "label": "กดดูเลย",
+                                "uri": redirect_url
+                            }
+                        }
+                    ]
+                }
             }
-        }
-        line_bot_api.reply_message(
-            event.reply_token,
-            FlexSendMessage(alt_text="ดูภาพเต็มพร้อมของเด็ด", contents=flex_message)
-        )
-    else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="ขอโทษครับ บังสร้างภาพไม่สำเร็จ ลองใหม่อีกครั้งนะ")
-        )
-    return
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(
+                    alt_text="ดูภาพเต็มพร้อมของเด็ด",
+                    contents=flex_message
+                )
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="ขอโทษครับ บังสร้างภาพไม่สำเร็จ ลองใหม่อีกครั้งนะ")
+            )
+        return
 
+    # ถ้าไม่ใช่คำสั่งสร้างภาพ = ตอบ GPT ปกติ
     messages = [{"role": "system", "content": '''
 คุณคือ 'บัง' ผู้ช่วย AI ภาษาไทยที่ฉลาด เป็นกันเอง และใช้ภาษาง่าย ๆ เหมือนเพื่อนคุยกัน
 - ตอบให้เข้าใจง่าย กระชับ ชัดเจน
@@ -217,3 +226,4 @@ def handle_message(event):
         event.reply_token,
         TextSendMessage(text=reply_text)
     )
+
